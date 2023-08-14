@@ -8,6 +8,7 @@ from langchain.embeddings import OpenAIEmbeddings, HuggingFaceEmbeddings
 from langchain.chains import ConversationalRetrievalChain
 from langchain.llms import GPT4All, LlamaCpp
 from langchain.memory import ConversationBufferMemory
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 import os
 import pickle
 from pdfminer.high_level import extract_text
@@ -22,15 +23,18 @@ def parse_args():
                         type=str,
                         required=True,
                         help=f'The pdf file you want to chat with. Only provide the name of the file that is placed in the pdfs/ directory.')
-    parser.add_argument("-l", "--local",
+    parser.add_argument("--local",
                         action="store_true",
                         help="Use a local embedder in stead of openAI api.")
+    parser.add_argument("--force",
+                        action="store_true",
+                        help="Force a recreation of the database.")
 
-    return parser.parse_args().file, parser.parse_args().local
+    return parser.parse_args().file, parser.parse_args().local, parser.parse_args().force
 
 
 class Pdf:
-    def __init__(self, pdf_file, local):
+    def __init__(self, pdf_file, local, force):
         load_dotenv()
         # Checks for openAI API key.
         if os.environ.get('OPENAI_API_KEY') is None:
@@ -46,7 +50,7 @@ class Pdf:
         if not os.path.isfile(self.txt_file):
             print(f"Creating {self.txt_file}...")
             self.parse_pdf()
-        if not os.path.isfile(self.db_name):
+        if not os.path.isfile(self.db_name) or force:
             print(f"Splitting {self.txt_file}...")
             chunks = self.split_txt()
             print(f"Creating {self.db_name}...")
@@ -56,20 +60,23 @@ class Pdf:
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
         if self.local:
             print("Setting up local qa chain")
-            self.qa_chain = ConversationalRetrievalChain.from_llm(GPT4All(model=os.path.abspath("models/gpt4all-model.bin"), backend="gptj"), self.db.as_retriever(), memory=memory)
+            callbacks = [StreamingStdOutCallbackHandler()]
+            self.qa_chain = ConversationalRetrievalChain.from_llm(GPT4All(model=os.path.abspath("models/ggml-gpt4all-j-v1.3-groovy.bin"), backend="gptj", max_tokens=1000, callbacks=callbacks), self.db.as_retriever(), memory=memory)
+            # self.qa_chain = ConversationalRetrievalChain.from_llm(LlamaCpp(model=os.path.abspath("models/.bin") max_tokens=1000), self.db.as_retriever(), memory=memory)
         else:
+            print("dsnjd")
             self.qa_chain = ConversationalRetrievalChain.from_llm(OpenAI(temperature=0.05), self.db.as_retriever(), memory=memory)
 
 
     def run(self):
         print("Starting chat. Type 'q' or 'exit' to quit.")
         while True:
-            query = input(f"Chatting with {self.filename}.pdf. Ask your question: ")
+            query = input(f"Chatting with {self.filename}.pdf. Ask your question: ").removesuffix("?")
             if not query:
                 continue
             if query == "q" or query == "exit":
                 return
-            res = self.search(query)
+            res = self.search(query+"?")
             print(res)
             query = ""
 
@@ -125,6 +132,6 @@ class Pdf:
         return result["answer"]
 
 
-pdf_file, local = parse_args()
-chatter = Pdf(pdf_file=pdf_file, local=local)
+pdf_file, local, force = parse_args()
+chatter = Pdf(pdf_file=pdf_file, local=local, force=force)
 chatter.run()
