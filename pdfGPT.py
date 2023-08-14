@@ -1,9 +1,10 @@
+import argparse
 from dotenv import load_dotenv
 import faiss
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import FAISS
 from langchain import OpenAI
-from langchain.embeddings import OpenAIEmbeddings
+from langchain.embeddings import OpenAIEmbeddings, HuggingFaceEmbeddings
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 import os
@@ -20,7 +21,7 @@ def parse_args():
                         required=True,
                         help=f'The pdf file you want to chat with. Only provide the name of the file that is placed in the pdfs/ directory.')
 
-    return parser.parse_args().model
+    return parser.parse_args().file
 
 
 class Pdf:
@@ -30,7 +31,7 @@ class Pdf:
         if os.environ.get('OPENAI_API_KEY') is None:
             print("Please provide a valid OpenAI API key in the .env file. See .env.example for more information")
             exit(1)
-        self.filename = pdf_file.removesuffix()(".pdf")
+        self.filename = pdf_file.removesuffix(".pdf")
         self.pdf_file = f"pdfs/{pdf_file}"
         self.txt_file = f"txts/{self.filename}.txt"
         self.db_name = f"dbs/{self.filename}.pkl"
