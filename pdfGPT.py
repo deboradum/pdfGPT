@@ -6,14 +6,16 @@ from langchain.vectorstores import FAISS
 from langchain import OpenAI
 from langchain.embeddings import OpenAIEmbeddings, HuggingFaceEmbeddings
 from langchain.chains import ConversationalRetrievalChain
-from langchain.llms import GPT4All, LlamaCpp
+from langchain.llms import LlamaCpp
 from langchain.memory import ConversationBufferMemory
+from langchain.prompts import PromptTemplate
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 import os
 import pickle
 from pdfminer.high_level import extract_text
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 import torch
+from pprint import pprint
 
 
 # Parser to handle the model argument.
@@ -29,17 +31,25 @@ def parse_args():
     parser.add_argument("--force",
                         action="store_true",
                         help="Force recreation of the database.")
+    parser.add_argument("--source",
+                        action="store_true",
+                        help="Return the piece of text where the answer was sourced from.")
 
-    return parser.parse_args().file, parser.parse_args().local, parser.parse_args().force
+    file_name = parser.parse_args().file
+    local = parser.parse_args().local
+    force = parser.parse_args().force
+    source = parser.parse_args().source
+    return file_name, local, force, source
 
 
 class Pdf:
-    def __init__(self, pdf_file, local, force):
+    def __init__(self, pdf_file, local, force, return_source):
         load_dotenv()
         # Checks for openAI API key.
-        if os.environ.get('OPENAI_API_KEY') is None:
+        if os.environ.get('OPENAI_API_KEY') is None and not local:
             print("Please provide a valid OpenAI API key in the .env file. See .env.example for more information")
             exit(1)
+
         self.filename = pdf_file.removesuffix(".pdf")
         self.pdf_file = f"pdfs/{pdf_file}"
         self.txt_file = f"txts/{self.filename}.txt"
@@ -58,28 +68,42 @@ class Pdf:
 
         self.load_faiss_db()
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        chatTemplate = """
+                       Answer the question based on the chat history(delimited by <hs></hs>) and context(delimited by <ctx> </ctx>) below. If you don't know the answer based on the given context, just say that you don't know, don't try to make up an answer. Keep the answers as concise as possible, but do explain your answer by quoting a piece of the context.
+                       -----------
+                       <ctx>
+                       {context}
+                       </ctx>
+                       -----------
+                       <hs>
+                       {chat_history}
+                       </hs>
+                       -----------
+                       Question: {question}
+                       Answer:
+                       """
+        promptHist = PromptTemplate(
+            input_variables=["context", "question", "chat_history"],
+            template=chatTemplate
+        )
+        callbacks = []
         if self.local:
-            callbacks = [StreamingStdOutCallbackHandler()]
-            self.qa_chain = ConversationalRetrievalChain.from_llm(GPT4All (model=os.path.abspath("models/ggml-gpt4all-j-v1.3-groovy.bin"),
-                                                                           backend="gptj",
-                                                                           max_tokens=1000,
-                                                                           callbacks=callbacks),
-                                                                  self.db.as_retriever(),
-                                                                  memory=memory)
-            self.qa_chain = ConversationalRetrievalChain.from_llm(LlamaCpp(model_path=os.path.abspath("models/llama-2-13b.q8_0.bin"),
-                                                                           max_tokens=5000,
-                                                                           n_ctx=2048,
-                                                                           n_gpu_layers=1,
-                                                                           f16_kv = True,
-                                                                           n_batch = 512,
-                                                                           verbose=False, # Info about time taken to generate answer.
-                                                                           callbacks=[]),
-                                                                  self.db.as_retriever(),
-                                                                  memory=memory)
+            llm = LlamaCpp(model_path=os.path.abspath("models/llama-2-13b-chat.q8_0.bin"),
+                            max_tokens=8192,
+                            n_ctx=2048,
+                            n_gpu_layers=1,
+                            f16_kv = True,
+                            n_batch = 512,
+                            verbose=False, # Info about time taken to generate answer.
+                            callbacks=callbacks)
         else:
-            self.qa_chain = ConversationalRetrievalChain.from_llm(OpenAI(temperature=0.05),
-                                                                  self.db.as_retriever(),
-                                                                  memory=memory)
+            llm = OpenAI(temperature=0.05)
+
+        self.qa_chain = ConversationalRetrievalChain.from_llm(llm,
+                                                              self.db.as_retriever(),
+                                                              memory=memory,
+                                                              return_source_documents=return_source,
+                                                              combine_docs_chain_kwargs={'prompt': promptHist} if local else None)
 
 
     def run(self):
@@ -143,9 +167,10 @@ class Pdf:
     # Searches for the query in the Faiss db.
     def search(self, query):
         result = self.qa_chain({"question": query})
+        # return result
         return result["answer"]
 
 
-pdf_file, local, force = parse_args()
-chatter = Pdf(pdf_file=pdf_file, local=local, force=force)
+pdf_file, local, force, source = parse_args()
+chatter = Pdf(pdf_file=pdf_file, local=local, force=force, return_source=source)
 chatter.run()
