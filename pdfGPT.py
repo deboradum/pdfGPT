@@ -45,10 +45,10 @@ class Pdf:
     def __init__(self, pdf_file, local, force, save_convo):
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         load_dotenv()
-        # Checks for openAI API key.
+        # Checks for openAI api key.
         if os.environ.get('OPENAI_API_KEY') is None and not local:
-            print("Please provide a valid OpenAI API key in the .env file. See .env.example for more information")
-            exit(1)
+            print("Please provide a valid OpenAI api key in the .env file. See .env.example for more information")
+            raise Exception("No OpenAI api key")
 
         self.filename = pdf_file.removesuffix(".pdf")
         self.pdf_file = f"pdfs/{pdf_file}"
@@ -98,7 +98,10 @@ class Pdf:
     def setup_llm(self):
         callbacks = []
         if self.local:
-            return LlamaCpp(model_path=os.path.abspath("models/llama-2-13b-chat.q8_0.bin"),
+            if os.environ.get('MODEL_PATH') is None or not os.path.isfile(os.environ.get('MODEL_PATH')):
+                print("Please specify a valid model path that is to be used for local inference.")
+                raise Exception("No model specified")
+            return LlamaCpp(model_path=os.path.abspath(os.environ.get('MODEL_PATH')),
                             max_tokens=8192,
                             n_ctx=2048,
                             n_gpu_layers=1,
