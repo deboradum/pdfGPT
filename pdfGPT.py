@@ -10,11 +10,9 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.llms import LlamaCpp
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import PromptTemplate
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 import os
 import pickle
 from pdfminer.high_level import extract_text
-from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 import torch
 from pprint import pprint
 
@@ -45,6 +43,7 @@ def parse_args():
 
 class Pdf:
     def __init__(self, pdf_file, local, force, save_convo):
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
         load_dotenv()
         # Checks for openAI API key.
         if os.environ.get('OPENAI_API_KEY') is None and not local:
