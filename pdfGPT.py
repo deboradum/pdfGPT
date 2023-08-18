@@ -14,7 +14,6 @@ import os
 import pickle
 from pdfminer.high_level import extract_text
 import torch
-from pprint import pprint
 
 
 # Parser to handle the model argument.
@@ -111,6 +110,7 @@ class Pdf:
                             callbacks=callbacks)
 
         return OpenAI(temperature=0.05)
+
 
     def run(self):
         print("Starting chat. Type 'q' or 'exit' to quit.")
